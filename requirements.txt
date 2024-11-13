@@ -1,0 +1,4 @@
+pipecat-ai
+loguru
+python-dotenv
+aiohttp
