@@ -3,15 +3,20 @@ import aiohttp
 import os
 import sys
 
-from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 from pipecat.frames.frames import LLMMessagesFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.services.cartesia import CartesiaTTSService
-from pipecat.services.openai import OpenAILLMService
+from pipecat.services.deepgram import DeepgramTTSService, DeepgramSTTService
+from pipecat.services.ollama import OLLamaLLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
+from pipecat.processors.aggregators.llm_response import (
+    LLMAssistantResponseAggregator,
+    LLMUserResponseAggregator,
+)
+
+from constants import SYSTEM_PROMPT
 
 from runner import configure
 
@@ -35,37 +40,51 @@ async def main():
             "Respond bot",
             DailyParams(
                 audio_out_enabled=True,
-                transcription_enabled=True,
+                audio_in_enabled=True,
+                camera_out_enabled=False,
+                transcription_enabled=False,
                 vad_enabled=True,
-                vad_analyzer=SileroVADAnalyzer(),
+                vad_audio_passthrough=True,
+                vad_analyzer=SileroVADAnalyzer(
+                    params=VADParams(
+                        stop_secs=0.2,
+                        start_secs=0.2,
+                        confidence=0.4)),
             ),
         )
 
-        tts = CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY"),
+        stt = DeepgramSTTService(
+            api_key=os.getenv("DEEPGRAM_API_KEY"),
+            language="en-US",
+            model="nova",
+        )
+
+        tts = DeepgramTTSService(
+            api_key=os.getenv("DEEPGRAM_API_KEY"),
             voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
         )
 
-        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+        llm = OLLamaLLMService(model="llama3.2")
 
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful LLM in a WebRTC call. Your goal is to demonstrate your capabilities in a succinct way. Your output will be converted to audio so don't include special characters in your answers. Respond to what the user said in a creative and helpful way.",
+                "content": SYSTEM_PROMPT,
             },
         ]
 
-        context = OpenAILLMContext(messages)
-        context_aggregator = llm.create_context_aggregator(context)
+        tma_in = LLMUserResponseAggregator(messages)
+        tma_out = LLMAssistantResponseAggregator(messages)
 
         pipeline = Pipeline(
             [
                 transport.input(),  # Transport user input
-                context_aggregator.user(),  # User responses
+                stt,  # STT
+                tma_in,  # User responses
                 llm,  # LLM
                 tts,  # TTS
                 transport.output(),  # Transport bot output
-                context_aggregator.assistant(),  # Assistant spoken responses
+                tma_out,  # Assistant spoken responses
             ]
         )
 
@@ -79,7 +98,7 @@ async def main():
             ),
         )
 
-        @transport.event_handler("on_first_participant_joined")
+        @ transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):
             await transport.capture_participant_transcription(participant["id"])
             # Kick off the conversation.

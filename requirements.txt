@@ -1,4 +1,4 @@
-pipecat-ai
+pipecat-ai[cartesia,daily,deepgram,elevenlabs,openai,playht,silero]
 loguru
 python-dotenv
 aiohttp
