@@ -66,12 +66,7 @@ async def main():
 
         llm = OLLamaLLMService(model="llama3.2")
 
-        messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-        ]
+        messages = []
 
         tma_in = LLMUserResponseAggregator(messages)
         tma_out = LLMAssistantResponseAggregator(messages)
@@ -98,13 +93,13 @@ async def main():
             ),
         )
 
-        @ transport.event_handler("on_first_participant_joined")
+        @transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):
-            await transport.capture_participant_transcription(participant["id"])
-            # Kick off the conversation.
-            messages.append({"role": "system", "content": "Please introduce yourself to the user."})
+            participant_name = participant.get("info", {}).get("userName", "")
+            system_prompt = SYSTEM_PROMPT.format(name=participant_name)
+            messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": "Hello, how are you?"})
             await task.queue_frames([LLMMessagesFrame(messages)])
-
         runner = PipelineRunner()
 
         await runner.run(task)
