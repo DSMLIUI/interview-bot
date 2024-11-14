@@ -61,7 +61,6 @@ async def main():
 
         tts = DeepgramTTSService(
             api_key=os.getenv("DEEPGRAM_API_KEY"),
-            voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
         )
 
         llm = OLLamaLLMService(model="llama3.2")
